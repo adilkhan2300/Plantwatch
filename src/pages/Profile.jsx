@@ -250,7 +250,7 @@ export default function Profile() {
         {/* App Version Info */}
         <div style={{ textAlign: 'center', marginTop: '12px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
           <p>PlantWatch v1.0.0 (PWA)</p>
-          <p style={{ opacity: 0.7, marginTop: '4px' }}>Built on Supabase & Google Maps</p>
+          <p style={{ opacity: 0.7, marginTop: '4px' }}>Built on Supabase & Leaflet/OpenStreetMap</p>
         </div>
       </div>
 

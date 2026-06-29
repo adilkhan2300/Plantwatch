@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { useJsApiLoader, GoogleMap, MarkerF } from '@react-google-maps/api';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
   ArrowLeft,
   ArrowRight,
@@ -74,10 +75,88 @@ export default function AddPlantFlow() {
   const [coords, setCoords] = useState(defaultCenter);
   const [mapCenter, setMapCenter] = useState(defaultCenter);
 
-  // Load Google Maps Script
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.REACT_APP_GOOGLE_MAPS_API_KEY || '',
-  });
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+
+  // Initialize or update map when step is 3
+  useEffect(() => {
+    if (step !== 3 || !mapContainerRef.current) {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
+      }
+      return;
+    }
+
+    // Initialize Leaflet Map if it doesn't exist
+    if (!mapInstanceRef.current) {
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: true,
+        attributionControl: false
+      }).setView([mapCenter.lat, mapCenter.lng], 14);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+      // Custom green Leaflet marker icon matching PlantWatch's deep green accent
+      const greenIcon = L.divIcon({
+        html: `<div style="background-color: #2D6A4F; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"><div style="width: 8px; height: 8px; background: white; border-radius: 50%;"></div></div>`,
+        className: 'custom-leaflet-pin',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24]
+      });
+
+      const marker = L.marker([coords.lat, coords.lng], {
+        draggable: true,
+        icon: greenIcon
+      }).addTo(map);
+
+      marker.on('dragend', () => {
+        const position = marker.getLatLng();
+        const newCoords = { lat: position.lat, lng: position.lng };
+        setCoords(newCoords);
+        reverseGeocode(position.lat, position.lng);
+      });
+
+      mapInstanceRef.current = map;
+      markerRef.current = marker;
+    } else {
+      // Map already exists, update center and marker position
+      mapInstanceRef.current.setView([mapCenter.lat, mapCenter.lng]);
+      if (markerRef.current) {
+        markerRef.current.setLatLng([coords.lat, coords.lng]);
+      }
+    }
+
+    return () => {
+      // We keep the map mounted as long as step === 3.
+    };
+  }, [step]);
+
+  // Clean up map when component unmounts
+  useEffect(() => {
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update map when coordinates or center changes externally
+  useEffect(() => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.panTo([mapCenter.lat, mapCenter.lng]);
+    }
+  }, [mapCenter]);
+
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.setLatLng([coords.lat, coords.lng]);
+    }
+  }, [coords]);
 
   const detectLocation = () => {
     if (!navigator.geolocation) {
@@ -104,28 +183,30 @@ export default function AddPlantFlow() {
     );
   };
 
-  const reverseGeocode = (lat, lng) => {
-    if (!window.google) {
-      setDetecting(false);
-      return;
-    }
-    const geocoder = new window.google.maps.Geocoder();
-    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-      setDetecting(false);
-      if (status === 'OK' && results[0]) {
-        setLocationName(results[0].formatted_address);
+  const reverseGeocode = async (lat, lng) => {
+    setDetecting(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+        {
+          headers: {
+            'Accept-Language': 'en',
+            'User-Agent': 'PlantWatch-App'
+          }
+        }
+      );
+      const data = await response.json();
+      if (data && data.display_name) {
+        setLocationName(data.display_name);
       } else {
         setLocationName(`Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
       }
-    });
-  };
-
-  const handleMarkerDragEnd = (e) => {
-    const newLat = e.latLng.lat();
-    const newLng = e.latLng.lng();
-    const newCoords = { lat: newLat, lng: newLng };
-    setCoords(newCoords);
-    reverseGeocode(newLat, newLng);
+    } catch (err) {
+      console.error(err);
+      setLocationName(`Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
+    } finally {
+      setDetecting(false);
+    }
   };
 
   const handleNext = () => {
@@ -491,40 +572,13 @@ export default function AddPlantFlow() {
             />
           </div>
 
-          {isLoaded ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <span className="form-label">Adjust Location (Drag Marker)</span>
-              <GoogleMap
-                mapContainerStyle={mapContainerStyle}
-                center={mapCenter}
-                zoom={14}
-                options={{
-                  zoomControl: true,
-                  streetViewControl: false,
-                  mapTypeControl: false,
-                  fullscreenControl: false,
-                }}
-              >
-                <MarkerF
-                  position={coords}
-                  draggable={true}
-                  onDragEnd={handleMarkerDragEnd}
-                />
-              </GoogleMap>
-            </div>
-          ) : (
-            <div style={{
-              ...mapContainerStyle,
-              backgroundColor: '#EBEFF0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-muted)',
-              fontSize: '0.85rem'
-            }}>
-              Loading Google Maps API...
-            </div>
-          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <span className="form-label">Adjust Location (Drag Marker)</span>
+            <div
+              ref={mapContainerRef}
+              style={mapContainerStyle}
+            />
+          </div>
 
           <button onClick={handleNext} className="btn btn-primary btn-full" style={{ marginTop: '12px' }}>
             Next: Review Info <ArrowRight size={18} />

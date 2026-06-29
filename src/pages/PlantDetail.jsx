@@ -4,7 +4,8 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import QrCodeModal from '../components/QrCodeModal';
-import { useJsApiLoader, GoogleMap, MarkerF } from '@react-google-maps/api';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
   LineChart,
   Line,
@@ -86,10 +87,137 @@ export default function PlantDetail() {
   const [editCoords, setEditCoords] = useState(null);
   const [detectingLoc, setDetectingLoc] = useState(false);
 
-  // Load Google Maps Script
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: import.meta.env.REACT_APP_GOOGLE_MAPS_API_KEY || '',
-  });
+  const detailMapRef = useRef(null);
+  const detailMapInstanceRef = useRef(null);
+  const detailMarkerRef = useRef(null);
+
+  const editMapRef = useRef(null);
+  const editMapInstanceRef = useRef(null);
+  const editMarkerRef = useRef(null);
+
+  // Initialize or update detail view map
+  useEffect(() => {
+    if (!plant || !detailMapRef.current) {
+      if (detailMapInstanceRef.current) {
+        detailMapInstanceRef.current.remove();
+        detailMapInstanceRef.current = null;
+        detailMarkerRef.current = null;
+      }
+      return;
+    }
+
+    const lat = plant.location_lat || 37.7749;
+    const lng = plant.location_lng || -122.4194;
+
+    if (!detailMapInstanceRef.current) {
+      const map = L.map(detailMapRef.current, {
+        zoomControl: false,
+        attributionControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        boxZoom: false
+      }).setView([lat, lng], 15);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+      const greenIcon = L.divIcon({
+        html: `<div style="background-color: #2D6A4F; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"><div style="width: 8px; height: 8px; background: white; border-radius: 50%;"></div></div>`,
+        className: 'custom-leaflet-pin',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24]
+      });
+
+      const marker = L.marker([lat, lng], { icon: greenIcon }).addTo(map);
+
+      detailMapInstanceRef.current = map;
+      detailMarkerRef.current = marker;
+    } else {
+      detailMapInstanceRef.current.setView([lat, lng], 15);
+      if (detailMarkerRef.current) {
+        detailMarkerRef.current.setLatLng([lat, lng]);
+      }
+    }
+  }, [plant]);
+
+  // Initialize or update edit modal map
+  useEffect(() => {
+    if (!showLocationModal || !editMapRef.current || !editCoords) {
+      if (editMapInstanceRef.current) {
+        editMapInstanceRef.current.remove();
+        editMapInstanceRef.current = null;
+        editMarkerRef.current = null;
+      }
+      return;
+    }
+
+    if (!editMapInstanceRef.current) {
+      const map = L.map(editMapRef.current, {
+        zoomControl: true,
+        attributionControl: false
+      }).setView([editCoords.lat, editCoords.lng], 15);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+      const greenIcon = L.divIcon({
+        html: `<div style="background-color: #2D6A4F; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"><div style="width: 8px; height: 8px; background: white; border-radius: 50%;"></div></div>`,
+        className: 'custom-leaflet-pin',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24]
+      });
+
+      const marker = L.marker([editCoords.lat, editCoords.lng], {
+        draggable: true,
+        icon: greenIcon
+      }).addTo(map);
+
+      marker.on('dragend', async () => {
+        const position = marker.getLatLng();
+        const draggedCoords = { lat: position.lat, lng: position.lng };
+        setEditCoords(draggedCoords);
+        
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${position.lat}&lon=${position.lng}&format=json`,
+            {
+              headers: {
+                'Accept-Language': 'en',
+                'User-Agent': 'PlantWatch-App'
+              }
+            }
+          );
+          const data = await response.json();
+          if (data && data.display_name) {
+            setEditLocationName(data.display_name);
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      });
+
+      editMapInstanceRef.current = map;
+      editMarkerRef.current = marker;
+    } else {
+      // Check if coordinates changed significantly from external source (like detectLocation)
+      const currentMarkerLatLng = editMarkerRef.current?.getLatLng();
+      if (currentMarkerLatLng && (Math.abs(currentMarkerLatLng.lat - editCoords.lat) > 0.0001 || Math.abs(currentMarkerLatLng.lng - editCoords.lng) > 0.0001)) {
+        editMapInstanceRef.current.setView([editCoords.lat, editCoords.lng]);
+        editMarkerRef.current.setLatLng([editCoords.lat, editCoords.lng]);
+      }
+    }
+  }, [showLocationModal, editCoords]);
+
+  // Clean up maps on unmount
+  useEffect(() => {
+    return () => {
+      if (detailMapInstanceRef.current) {
+        detailMapInstanceRef.current.remove();
+      }
+      if (editMapInstanceRef.current) {
+        editMapInstanceRef.current.remove();
+      }
+    };
+  }, []);
 
   const fetchPlantData = async () => {
     try {
@@ -367,19 +495,29 @@ export default function PlantDetail() {
     }
     setDetectingLoc(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
-        setEditCoords({ lat, lng });
-        if (window.google) {
-          const geocoder = new window.google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            setDetectingLoc(false);
-            if (status === 'OK' && results[0]) {
-              setEditLocationName(results[0].formatted_address);
+        const newCoords = { lat, lng };
+        setEditCoords(newCoords);
+        
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+            {
+              headers: {
+                'Accept-Language': 'en',
+                'User-Agent': 'PlantWatch-App'
+              }
             }
-          });
-        } else {
+          );
+          const data = await response.json();
+          if (data && data.display_name) {
+            setEditLocationName(data.display_name);
+          }
+        } catch (err) {
+          console.error(err);
+        } finally {
           setDetectingLoc(false);
         }
       },
@@ -702,25 +840,10 @@ export default function PlantDetail() {
                 <span>{plant.location_name}</span>
               </div>
 
-              {isLoaded ? (
-                <GoogleMap
-                  mapContainerStyle={mapContainerStyle}
-                  center={{ lat: plant.location_lat || 37.7749, lng: plant.location_lng || -122.4194 }}
-                  zoom={15}
-                  options={{
-                    zoomControl: false,
-                    streetViewControl: false,
-                    mapTypeControl: false,
-                    fullscreenControl: false,
-                  }}
-                >
-                  <MarkerF position={{ lat: plant.location_lat || 37.7749, lng: plant.location_lng || -122.4194 }} />
-                </GoogleMap>
-              ) : (
-                <div style={{ height: '200px', backgroundColor: '#EBEFF0', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  Loading Map...
-                </div>
-              )}
+              <div
+                ref={detailMapRef}
+                style={mapContainerStyle}
+              />
             </div>
 
             {/* Log Environment Reading Card */}
@@ -1097,29 +1220,13 @@ export default function PlantDetail() {
               />
             </div>
 
-            {isLoaded && editCoords && (
+            {editCoords && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <span className="form-label">Drag pin to calibrate spot</span>
-                <GoogleMap
-                  mapContainerStyle={{ width: '100%', height: '180px', borderRadius: '16px' }}
-                  center={editCoords}
-                  zoom={15}
-                >
-                  <MarkerF
-                    position={editCoords}
-                    draggable={true}
-                    onDragEnd={(e) => {
-                      const newCoords = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-                      setEditCoords(newCoords);
-                      if (window.google) {
-                        const geocoder = new window.google.maps.Geocoder();
-                        geocoder.geocode({ location: newCoords }, (res, stat) => {
-                          if (stat === 'OK' && res[0]) setEditLocationName(res[0].formatted_address);
-                        });
-                      }
-                    }}
-                  />
-                </GoogleMap>
+                <div
+                  ref={editMapRef}
+                  style={{ width: '100%', height: '180px', borderRadius: '16px', border: '1.5px solid var(--card-border)' }}
+                />
               </div>
             )}
 
