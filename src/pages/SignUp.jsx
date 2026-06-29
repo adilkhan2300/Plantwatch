@@ -41,8 +41,13 @@ export default function SignUp() {
     if (error) {
       toastError(error.message);
     } else {
-      success('Account created successfully! Check email for verification if required.');
-      navigate('/');
+      if (data?.session) {
+        success('Account created successfully! Welcome to PlantWatch.');
+        navigate('/');
+      } else {
+        success('Account created successfully! You can now sign in.');
+        navigate('/login');
+      }
     }
   };
 
