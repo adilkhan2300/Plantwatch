@@ -1,0 +1,26 @@
+{
+  "short_name": "PlantWatch",
+  "name": "PlantWatch - Plant Monitoring PWA",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#F5FBF7",
+  "theme_color": "#1B4332",
+  "display": "standalone",
+  "orientation": "portrait"
+}
