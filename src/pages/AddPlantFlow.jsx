@@ -12,7 +12,9 @@ import {
   MapPin,
   Calendar,
   CheckCircle,
+  Download,
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 
 const EMOJIS = ['🌿', '🪴', '🌸', '🌵', '🌴', '🌾', '🎋', '🍀', '🌺', '🪻'];
 
@@ -62,10 +64,7 @@ export default function AddPlantFlow() {
   const [sunlight, setSunlight] = useState('Bright Indirect Light');
   const [wateringInterval, setWateringInterval] = useState(7);
   const [heightCm, setHeightCm] = useState(15);
-  const [initialTemp, setInitialTemp] = useState(22);
-  const [initialHumidity, setInitialHumidity] = useState(60);
-  const [initialMoisture, setInitialMoisture] = useState('Moist');
-  const [initialLight, setInitialLight] = useState('Medium');
+  const [registeredPlant, setRegisteredPlant] = useState(null);
   const [floor, setFloor] = useState('Ground Floor');
   const [isIndoor, setIsIndoor] = useState(true);
 
@@ -236,10 +235,8 @@ export default function AddPlantFlow() {
       nextWaterDate.setDate(nextWaterDate.getDate() + Number(wateringInterval));
       const nextWaterStr = nextWaterDate.toISOString().split('T')[0];
 
-      // Determine starting health (defaults to 100, drops slightly if initial soil moisture is bone dry)
+      // Determine starting health (defaults to 100)
       let initialHealth = 100;
-      if (initialMoisture === 'Bone Dry') initialHealth = 70;
-      if (initialMoisture === 'Wet') initialHealth = 90;
 
       // 1. Insert Plant
       const { data: plantData, error: plantErr } = await supabase
@@ -249,7 +246,7 @@ export default function AddPlantFlow() {
           name,
           species,
           emoji,
-          status: initialHealth >= 90 ? 'thriving' : initialHealth >= 70 ? 'stable' : 'needs-care',
+          status: 'stable',
           health: initialHealth,
           height_cm: Number(heightCm),
           potted_date: pottedDate,
@@ -272,20 +269,7 @@ export default function AddPlantFlow() {
 
       const newPlantId = plantData.id;
 
-      // 2. Insert initial sensor reading
-      const { error: sensorErr } = await supabase
-        .from('sensor_readings')
-        .insert({
-          plant_id: newPlantId,
-          temperature_c: Number(initialTemp),
-          humidity_percent: Number(initialHumidity),
-          soil_moisture: initialMoisture,
-          light_level: initialLight,
-        });
-
-      if (sensorErr) throw sensorErr;
-
-      // 3. Insert initial growth log
+      // 2. Insert initial growth log
       const { error: growthErr } = await supabase
         .from('growth_logs')
         .insert({
@@ -297,13 +281,107 @@ export default function AddPlantFlow() {
       if (growthErr) throw growthErr;
 
       success(`${name} has been cataloged!`);
-      navigate(`/plant/${newPlantId}`);
+      setRegisteredPlant(plantData);
+      setStep(5);
     } catch (err) {
       console.error(err);
       toastError(err.message || 'Failed to save plant. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const downloadPassport = () => {
+    if (!registeredPlant) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 350;
+    canvas.height = 550;
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, 350, 550);
+
+    // Border
+    ctx.strokeStyle = '#2D6A4F';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, 344, 544);
+
+    // Green Header
+    ctx.fillStyle = '#2D6A4F';
+    ctx.fillRect(6, 6, 338, 70);
+
+    // Title
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 18px Helvetica, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PLANTWATCH PASSPORT', 175, 46);
+
+    // Emoji
+    ctx.font = '70px Arial';
+    ctx.fillText(emoji, 175, 165);
+
+    // Plant Name & Species
+    ctx.fillStyle = '#1B4332';
+    ctx.font = 'bold 22px Helvetica, Arial, sans-serif';
+    ctx.fillText(name, 175, 205);
+
+    ctx.fillStyle = '#74A57F';
+    ctx.font = 'italic 14px Helvetica, Arial, sans-serif';
+    ctx.fillText(species || 'Unknown Species', 175, 225);
+
+    // Separator line
+    ctx.strokeStyle = '#E2EDE6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(30, 245);
+    ctx.lineTo(320, 245);
+    ctx.stroke();
+
+    // Details text
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#495057';
+    ctx.font = 'bold 12px Helvetica, Arial, sans-serif';
+
+    ctx.fillText('Potted Date:', 45, 275);
+    ctx.fillText('Watering Cycle:', 45, 295);
+    ctx.fillText('Sunlight:', 45, 315);
+    ctx.fillText('Location:', 45, 335);
+
+    ctx.fillStyle = '#1B4332';
+    ctx.fillText(pottedDate, 150, 275);
+    ctx.fillText(`Every ${wateringInterval} Days`, 150, 295);
+    ctx.fillText(sunlight, 150, 315);
+    ctx.fillText(`${isIndoor ? 'Indoor' : 'Outdoor'} ${floor ? `(${floor})` : ''}`, 150, 335);
+
+    // Separator line
+    ctx.strokeStyle = '#E2EDE6';
+    ctx.beginPath();
+    ctx.moveTo(30, 355);
+    ctx.lineTo(320, 355);
+    ctx.stroke();
+
+    // Draw QR Code
+    const qrCanvas = document.getElementById('register-qr-canvas');
+    if (qrCanvas) {
+      ctx.drawImage(qrCanvas, 115, 370, 120, 120);
+    }
+
+    // QR Label
+    ctx.fillStyle = '#8F7E7A';
+    ctx.font = 'italic 10px Helvetica, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Scan QR to view plant diary', 175, 515);
+
+    // Download trigger
+    const dataUrl = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `plant-passport-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -319,13 +397,13 @@ export default function AddPlantFlow() {
         </button>
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Add New Plant</h2>
-          <p style={{ fontSize: '0.8rem' }}>Step {step} of 4</p>
+          <p style={{ fontSize: '0.8rem' }}>Step {step} of 5</p>
         </div>
       </div>
 
       {/* Progress Line */}
       <div style={{ display: 'flex', gap: '4px', height: '4px', width: '100%', marginBottom: '28px', backgroundColor: '#E2EDE6', borderRadius: '2px' }}>
-        {[1, 2, 3, 4].map((num) => (
+        {[1, 2, 3, 4, 5].map((num) => (
           <div
             key={num}
             style={{
@@ -475,43 +553,7 @@ export default function AddPlantFlow() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div className="form-group">
-              <label className="form-label">Initial Temp (°C)</label>
-              <input
-                type="number"
-                className="form-input"
-                value={initialTemp}
-                onChange={(e) => setInitialTemp(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Initial Humid (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                className="form-input"
-                value={initialHumidity}
-                onChange={(e) => setInitialHumidity(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div className="form-group">
-              <label className="form-label">Soil Moisture</label>
-              <select className="form-input" value={initialMoisture} onChange={(e) => setInitialMoisture(e.target.value)}>
-                {MOISTURES.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Sunlight Level</label>
-              <select className="form-input" value={initialLight} onChange={(e) => setInitialLight(e.target.value)}>
-                {LIGHT_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
-              </select>
-            </div>
-          </div>
+          {/* Sensor fields removed */}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '16px', alignItems: 'center' }}>
             <div className="form-group">
@@ -650,6 +692,139 @@ export default function AddPlantFlow() {
               </>
             )}
           </button>
+        </div>
+      )}
+
+      {/* Step 5: Success & Download Passport */}
+      {step === 5 && registeredPlant && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', alignItems: 'center', textAlign: 'center' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--accent-light)',
+            color: 'var(--accent)',
+            marginBottom: '8px'
+          }}>
+            <CheckCircle size={36} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>Plant Registered!</h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+              Your plant passport and unique QR code have been generated.
+            </p>
+          </div>
+
+          {/* Hidden Canvas for QR Canvas to image drawing */}
+          <div style={{ display: 'none' }}>
+            <QRCodeCanvas
+              id="register-qr-canvas"
+              value={`${window.location.origin}/plant/${registeredPlant.id}`}
+              size={200}
+              level="H"
+              includeMargin={true}
+            />
+          </div>
+
+          {/* Card Preview */}
+          <div className="pw-card" style={{
+            width: '100%',
+            maxWidth: '340px',
+            margin: 0,
+            padding: '24px 20px',
+            border: '2px solid var(--accent)',
+            borderRadius: '24px',
+            backgroundColor: '#FFFFFF',
+            boxShadow: '0 8px 30px rgba(27,67,50,0.08)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+            position: 'relative'
+          }}>
+            {/* Header badge */}
+            <div style={{
+              alignSelf: 'center',
+              backgroundColor: 'var(--accent)',
+              color: '#FFFFFF',
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '0.7rem',
+              fontWeight: 800,
+              letterSpacing: '1px',
+              textTransform: 'uppercase'
+            }}>
+              Plant Passport
+            </div>
+
+            <div style={{ fontSize: '4.5rem', lineHeight: 1 }}>{emoji}</div>
+            <div>
+              <h3 style={{ fontSize: '1.4rem', color: 'var(--primary)', fontWeight: 800 }}>{name}</h3>
+              <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>{species || 'Unknown species'}</p>
+            </div>
+
+            <div style={{ height: '1.5px', backgroundColor: 'var(--card-border)' }} />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem', textAlign: 'left', padding: '0 8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Potted Date:</span>
+                <strong>{pottedDate}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Watering Cycle:</span>
+                <strong>Every {wateringInterval} Days</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Sunlight:</span>
+                <strong>{sunlight}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Location:</span>
+                <strong>{isIndoor ? 'Indoor' : 'Outdoor'} {floor ? `(${floor})` : ''}</strong>
+              </div>
+            </div>
+
+            <div style={{ height: '1.5px', backgroundColor: 'var(--card-border)' }} />
+
+            {/* QR Code Container */}
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0' }}>
+              <div style={{
+                padding: '10px',
+                border: '1.5px solid var(--card-border)',
+                borderRadius: '16px',
+                backgroundColor: '#FFFFFF',
+                display: 'inline-flex'
+              }}>
+                <QRCodeCanvas
+                  value={`${window.location.origin}/plant/${registeredPlant.id}`}
+                  size={120}
+                  level="H"
+                  includeMargin={false}
+                />
+              </div>
+            </div>
+
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+              Scan QR code to view live growth diary.
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '340px' }}>
+            <button
+              onClick={downloadPassport}
+              className="btn btn-secondary btn-full"
+            >
+              <Download size={18} /> Download Plant Passport
+            </button>
+            <button
+              onClick={() => navigate(`/plant/${registeredPlant.id}`)}
+              className="btn btn-primary btn-full"
+            >
+              Go to Plant Profile <ArrowRight size={18} />
+            </button>
+          </div>
         </div>
       )}
     </div>

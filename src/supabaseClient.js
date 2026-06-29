@@ -331,15 +331,7 @@ const seedData = {
       color: '#52B788',
     }
   ],
-  sensor_readings: [
-    { id: 'sr-1', plant_id: 'plant-1', temperature_c: 22.5, humidity_percent: 54, soil_moisture: 'Moist', light_level: 'Medium', recorded_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
-    { id: 'sr-2', plant_id: 'plant-1', temperature_c: 23.1, humidity_percent: 52, soil_moisture: 'Moist', light_level: 'Bright', recorded_at: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString() },
-    { id: 'sr-3', plant_id: 'plant-1', temperature_c: 22.2, humidity_percent: 56, soil_moisture: 'Moist', light_level: 'Medium', recorded_at: new Date(Date.now() - 5 * 60 * 1000).toISOString() },
-    
-    { id: 'sr-4', plant_id: 'plant-2', temperature_c: 21.0, humidity_percent: 45, soil_moisture: 'Dry', light_level: 'Low', recorded_at: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
-    
-    { id: 'sr-5', plant_id: 'plant-3', temperature_c: 19.5, humidity_percent: 34, soil_moisture: 'Bone Dry', light_level: 'Medium', recorded_at: new Date(Date.now() - 15 * 60 * 1000).toISOString() },
-  ],
+  sensor_readings: [],
   growth_logs: [
     { id: 'gl-1', plant_id: 'plant-1', height_cm: 100, note: 'Initial height', logged_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString() },
     { id: 'gl-2', plant_id: 'plant-1', height_cm: 108, note: 'Growing steady', logged_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString() },

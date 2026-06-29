@@ -5,14 +5,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import {
-  Thermometer,
-  Droplets,
   Sprout,
-  AlertTriangle,
   Plus,
   MapPin,
   Clock,
-  ChevronRight,
   TrendingUp,
   RefreshCw,
 } from 'lucide-react';
@@ -23,7 +19,7 @@ export default function Home() {
   const navigate = useNavigate();
 
   const [plants, setPlants] = useState([]);
-  const [readings, setReadings] = useState({}); // plant_id -> latest_reading
+  // Readings state removed
   const [growthData, setGrowthData] = useState({}); // plant_id -> array of logs
   const [issuesCount, setIssuesCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -50,23 +46,7 @@ export default function Home() {
       if (plantsData && plantsData.length > 0) {
         const plantIds = plantsData.map((p) => p.id);
 
-        // 2. Fetch latest readings for each plant
-        // Supabase doesn't support distinct on, so we fetch recent readings and group
-        const { data: readingsData, error: readingsErr } = await supabase
-          .from('sensor_readings')
-          .select('*')
-          .in('plant_id', plantIds)
-          .order('recorded_at', { ascending: false });
-
-        if (readingsErr) throw readingsErr;
-
-        const latestReadings = {};
-        readingsData?.forEach((r) => {
-          if (!latestReadings[r.plant_id]) {
-            latestReadings[r.plant_id] = r;
-          }
-        });
-        setReadings(latestReadings);
+        // Sensor readings query removed
 
         // 3. Fetch 6-month growth logs
         const { data: logsData, error: logsErr } = await supabase
@@ -126,24 +106,6 @@ export default function Home() {
       )
       .subscribe();
 
-    // 2. Subscribe to sensor_readings
-    const readingsSub = supabase
-      .channel('readings-channel')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'sensor_readings' },
-        (payload) => {
-          const newReading = payload.new;
-          setReadings((prev) => ({
-            ...prev,
-            [newReading.plant_id]: newReading,
-          }));
-          // Trigger health/status recalculation if necessary (handled by fetchData)
-          fetchData();
-        }
-      )
-      .subscribe();
-
     // 3. Subscribe to issues
     const issuesSub = supabase
       .channel('issues-channel')
@@ -158,7 +120,6 @@ export default function Home() {
 
     return () => {
       plantsSub.unsubscribe();
-      readingsSub.unsubscribe();
       issuesSub.unsubscribe();
     };
   }, [user]);
@@ -202,25 +163,7 @@ export default function Home() {
   const todayStr = new Date().toISOString().split('T')[0];
   const needsWaterCount = plants.filter((p) => p.next_water && p.next_water <= todayStr).length;
 
-  // Alerts calculations
-  const tempAlerts = [];
-  const humidityAlerts = [];
-  const dryAlerts = [];
-
-  plants.forEach((plant) => {
-    const reading = readings[plant.id];
-    if (reading) {
-      if (reading.temperature_c < 18 || reading.temperature_c > 28) {
-        tempAlerts.push({ plant, temp: reading.temperature_c });
-      }
-      if (reading.humidity_percent < 50) {
-        humidityAlerts.push({ plant, hum: reading.humidity_percent });
-      }
-      if (reading.soil_moisture === 'Bone Dry') {
-        dryAlerts.push({ plant });
-      }
-    }
-  });
+  // Alerts calculations removed
 
   return (
     <div
@@ -309,88 +252,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Alerts section */}
-        {!loading && (tempAlerts.length > 0 || humidityAlerts.length > 0 || dryAlerts.length > 0) && (
-          <div className="dashboard-alerts-list">
-            {tempAlerts.map(({ plant, temp }) => (
-              <div
-                key={`temp-${plant.id}`}
-                onClick={() => navigate(`/plant/${plant.id}`)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  backgroundColor: '#FFF2F1',
-                  border: '1.5px solid #FAD7D4',
-                  borderRadius: '16px',
-                  padding: '12px 16px',
-                  color: 'var(--env-danger)',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600
-                }}
-              >
-                <AlertTriangle size={18} />
-                <div style={{ flex: 1 }}>
-                  <strong>{plant.name}</strong> is experiencing abnormal temperature: <strong>{temp}°C</strong>
-                </div>
-                <ChevronRight size={16} />
-              </div>
-            ))}
-
-            {humidityAlerts.map(({ plant, hum }) => (
-              <div
-                key={`hum-${plant.id}`}
-                onClick={() => navigate(`/plant/${plant.id}`)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  backgroundColor: '#FFFBEA',
-                  border: '1.5px solid #FBEFBE',
-                  borderRadius: '16px',
-                  padding: '12px 16px',
-                  color: '#B78A02',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600
-                }}
-              >
-                <AlertTriangle size={18} />
-                <div style={{ flex: 1 }}>
-                  <strong>{plant.name}</strong> has too dry air: <strong>{hum}%</strong> Humidity
-                </div>
-                <ChevronRight size={16} />
-              </div>
-            ))}
-
-            {dryAlerts.map(({ plant }) => (
-              <div
-                key={`dry-${plant.id}`}
-                onClick={() => navigate(`/plant/${plant.id}`)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  backgroundColor: '#F3F7FA',
-                  border: '1.5px solid #D2E2EE',
-                  borderRadius: '16px',
-                  padding: '12px 16px',
-                  color: '#22577A',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600
-                }}
-              >
-                <Droplets size={18} />
-                <div style={{ flex: 1 }}>
-                  <strong>{plant.name}</strong> is <strong>Bone Dry</strong> and needs water immediately!
-                </div>
-                <ChevronRight size={16} />
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Alerts section removed */}
 
         {/* Plants List */}
         <div>
@@ -422,7 +284,6 @@ export default function Home() {
             <div className="plants-cards-grid">
               {plants.map((plant) => {
                 const logs = growthData[plant.id] || [];
-                const latestReading = readings[plant.id];
                 
                 // Urgency calculation
                 const isWaterOverdue = plant.next_water && plant.next_water <= todayStr;

@@ -51,11 +51,6 @@ export default function PlantDetail() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview'); // overview | growth | care | issues
   
-  // Realtime & readings state
-  const [latestReading, setLatestReading] = useState(null);
-  const [flashUpdate, setFlashUpdate] = useState(false);
-  const [timeAgo, setTimeAgo] = useState('Just now');
-  
   // Logs state
   const [growthLogs, setGrowthLogs] = useState([]);
   const [careLogs, setCareLogs] = useState([]);
@@ -64,12 +59,6 @@ export default function PlantDetail() {
   // Modals / forms state
   const [showQrModal, setShowQrModal] = useState(false);
   const [showLocationModal, setShowLocationModal] = useState(false);
-  
-  // Log Forms state
-  const [logTemp, setLogTemp] = useState(22);
-  const [logHumidity, setLogHumidity] = useState(60);
-  const [logMoisture, setLogMoisture] = useState('Moist');
-  const [logLight, setLogLight] = useState('Medium');
   
   const [logHeight, setLogHeight] = useState('');
   const [logHeightNote, setLogHeightNote] = useState('');
@@ -235,20 +224,6 @@ export default function PlantDetail() {
       setEditLocationName(plantData.location_name || '');
       setEditCoords({ lat: plantData.location_lat || 37.7749, lng: plantData.location_lng || -122.4194 });
 
-      // 2. Fetch latest reading
-      const { data: readingData, error: readingErr } = await supabase
-        .from('sensor_readings')
-        .select('*')
-        .eq('plant_id', id)
-        .order('recorded_at', { ascending: false })
-        .limit(1);
-
-      if (readingErr) throw readingErr;
-      if (readingData && readingData.length > 0) {
-        setLatestReading(readingData[0]);
-        updateTimeAgo(readingData[0].recorded_at);
-      }
-
       // 3. Fetch logs
       const { data: gLogs, error: gErr } = await supabase
         .from('growth_logs')
@@ -283,35 +258,28 @@ export default function PlantDetail() {
     }
   };
 
-  const updateTimeAgo = (timestamp) => {
-    if (!timestamp) return;
-    const diffMs = new Date() - new Date(timestamp);
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) setTimeAgo('Just now');
-    else if (diffMins === 1) setTimeAgo('1 min ago');
-    else setTimeAgo(`${diffMins} mins ago`);
-  };
-
   useEffect(() => {
     fetchPlantData();
   }, [id, user]);
 
-  // Realtime subscription setup
+  // Realtime subscription for issues and care logs changes
   useEffect(() => {
     if (!id) return;
 
-    // Listen for new readings
     const sub = supabase
-      .channel(`plant-${id}-sensor`)
+      .channel(`plant-${id}-updates`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'sensor_readings', filter: `plant_id=eq.${id}` },
-        (payload) => {
-          setLatestReading(payload.new);
-          updateTimeAgo(payload.new.recorded_at);
-          setFlashUpdate(true);
-          setTimeout(() => setFlashUpdate(false), 1000);
-          fetchPlantData(); // Refresh logs/health/status
+        { event: '*', schema: 'public', table: 'issues', filter: `plant_id=eq.${id}` },
+        () => {
+          fetchPlantData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'care_logs', filter: `plant_id=eq.${id}` },
+        () => {
+          fetchPlantData();
         }
       )
       .subscribe();
@@ -320,27 +288,6 @@ export default function PlantDetail() {
       sub.unsubscribe();
     };
   }, [id]);
-
-  // Handle Log Sensor Reading
-  const handleLogReading = async (e) => {
-    e.preventDefault();
-    try {
-      const { error } = await supabase
-        .from('sensor_readings')
-        .insert({
-          plant_id: id,
-          temperature_c: Number(logTemp),
-          humidity_percent: Number(logHumidity),
-          soil_moisture: logMoisture,
-          light_level: logLight,
-        });
-
-      if (error) throw error;
-      success('Sensor reading logged!');
-    } catch (err) {
-      toastError(err.message);
-    }
-  };
 
   // Handle Log Growth
   const handleLogGrowth = async (e) => {
@@ -571,39 +518,7 @@ export default function PlantDetail() {
   const openIssues = issues.filter((i) => !i.resolved);
   const resolvedIssues = issues.filter((i) => i.resolved);
 
-  // Sensor threshold coloring function
-  const getTempClass = (temp) => {
-    if (temp >= 18 && temp <= 28) return 'ideal';
-    if (temp < 18) return 'cold';
-    return 'danger';
-  };
-  const getTempLabel = (temp) => {
-    if (temp >= 18 && temp <= 28) return 'Ideal';
-    if (temp < 18) return 'Too Cold';
-    return 'Too Hot';
-  };
-
-  const getHumidityClass = (hum) => {
-    if (hum >= 50 && hum <= 70) return 'ideal';
-    if (hum < 50) return 'warning'; // too dry
-    return 'humid'; // too humid
-  };
-  const getHumidityLabel = (hum) => {
-    if (hum >= 50 && hum <= 70) return 'Ideal';
-    if (hum < 50) return 'Too Dry';
-    return 'Too Humid';
-  };
-
-  const getMoistureClass = (mst) => {
-    if (mst === 'Wet' || mst === 'Moist') return 'ideal';
-    if (mst === 'Dry') return 'warning';
-    return 'danger'; // Bone Dry
-  };
-
-  const getLightClass = (lg) => {
-    if (lg === 'Bright' || lg === 'Medium') return 'ideal';
-    return 'warning'; // Low
-  };
+  // Sensor helpers removed
 
   return (
     <div style={{ paddingBottom: '100px' }}>
@@ -702,49 +617,7 @@ export default function PlantDetail() {
           </div>
         </div>
 
-        {/* Live Environmental strip */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', gap: '8px' }} className={flashUpdate ? 'fade-update' : ''}>
-            <div className={`sensor-pill ${latestReading ? getTempClass(latestReading.temperature_c) : 'ideal'}`}>
-              <span style={{ fontSize: '1.25rem' }}>🌡️</span>
-              <span className="val">{latestReading ? `${latestReading.temperature_c.toFixed(1)}°C` : 'N/A'}</span>
-              <span className="lbl">Temp</span>
-              <span className="status-lbl">
-                {latestReading ? getTempLabel(latestReading.temperature_c) : 'Ideal'}
-              </span>
-            </div>
-
-            <div className={`sensor-pill ${latestReading ? getHumidityClass(latestReading.humidity_percent) : 'ideal'}`}>
-              <span style={{ fontSize: '1.25rem' }}>💧</span>
-              <span className="val">{latestReading ? `${latestReading.humidity_percent.toFixed(0)}%` : 'N/A'}</span>
-              <span className="lbl">Humid</span>
-              <span className="status-lbl">
-                {latestReading ? getHumidityLabel(latestReading.humidity_percent) : 'Ideal'}
-              </span>
-            </div>
-
-            <div className={`sensor-pill ${latestReading ? getMoistureClass(latestReading.soil_moisture) : 'ideal'}`}>
-              <span style={{ fontSize: '1.25rem' }}>🌱</span>
-              <span className="val" style={{ fontSize: '0.85rem' }}>{latestReading ? latestReading.soil_moisture : 'N/A'}</span>
-              <span className="lbl">Soil</span>
-              <span className="status-lbl">
-                {latestReading ? (latestReading.soil_moisture === 'Bone Dry' ? 'Dry ⚠️' : 'OK') : 'OK'}
-              </span>
-            </div>
-
-            <div className={`sensor-pill ${latestReading ? getLightClass(latestReading.light_level) : 'ideal'}`}>
-              <span style={{ fontSize: '1.25rem' }}>☀️</span>
-              <span className="val">{latestReading ? latestReading.light_level : 'N/A'}</span>
-              <span className="lbl">Light</span>
-              <span className="status-lbl">
-                {latestReading ? (latestReading.light_level === 'Low' ? 'Low ☀️' : 'OK') : 'OK'}
-              </span>
-            </div>
-          </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginRight: '4px' }}>
-            Last updated: {timeAgo}
-          </div>
-        </div>
+        {/* Sensor readings removed */}
 
         {/* Tab Controls */}
         <div className="tab-container">
@@ -846,52 +719,7 @@ export default function PlantDetail() {
               />
             </div>
 
-            {/* Log Environment Reading Card */}
-            <div className="pw-card" style={{ margin: 0 }}>
-              <h3 style={{ fontSize: '1.1rem', marginBottom: '14px', color: 'var(--primary)' }}>Manual Sensor Override</h3>
-              <form onSubmit={handleLogReading} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Temp (°C)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      className="form-input"
-                      value={logTemp}
-                      onChange={(e) => setLogTemp(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Humidity (%)</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={logHumidity}
-                      onChange={(e) => setLogHumidity(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Soil Moisture</label>
-                    <select className="form-input" value={logMoisture} onChange={(e) => setLogMoisture(e.target.value)}>
-                      {MOISTURES.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Light level</label>
-                    <select className="form-input" value={logLight} onChange={(e) => setLogLight(e.target.value)}>
-                      {LIGHT_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <button type="submit" className="btn btn-primary btn-full" style={{ marginTop: '8px' }}>
-                  Save Sensor Reading
-                </button>
-              </form>
-            </div>
+            {/* Sensor override removed */}
           </div>
         )}
 
